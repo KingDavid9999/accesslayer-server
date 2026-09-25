@@ -33,7 +33,10 @@ import {
 import { prisma } from '../../utils/prisma.utils';
 import { logger } from '../../utils/logger.utils';
 import { invalidateCreatorDashboardCache } from '../creator/creator-dashboard.service';
-import { creatorProfileExists, getCreatorProfile } from '../creator/creator-profile.service';
+import {
+   creatorProfileExists,
+   getCreatorProfile,
+} from '../creator/creator-profile.service';
 
 import { cacheGetJson, cacheSetJson } from '../../utils/redis.utils';
 import { fetchCreatorProfilesByIds } from '../../utils/creator-batch.utils';
@@ -64,6 +67,16 @@ import {
    PositionNotFoundError,
    unfreezePosition,
 } from './key-freeze.service';
+import {
+   getPriceImpact,
+   KeyNotFoundError as PriceImpactKeyNotFoundError,
+} from './key-price-impact.service';
+import {
+   getBuybackPoolBalance,
+   getBuybackPoolHistory,
+   executeBuybackFromPool,
+   KeyNotFoundError as BuybackPoolKeyNotFoundError,
+} from './buyback-pool.service';
 
 const priceHistoryQuerySchema = z.object({
    from: z.string().datetime(),
@@ -81,6 +94,40 @@ const batchKeysBodySchema = z.object({
 
 const walletQuerySchema = z.object({
    wallet: StellarAddressSchema,
+});
+
+const priceImpactQuerySchema = z.object({
+   quantity: z.string().transform(v => {
+      const num = parseInt(v, 10);
+      if (isNaN(num) || num <= 0) {
+         throw new Error('Quantity must be a positive integer');
+      }
+      return num;
+   }),
+   direction: z.enum(['buy', 'sell']),
+});
+
+const buybackPoolHistoryQuerySchema = z.object({
+   limit: z
+      .string()
+      .transform(v => {
+         const num = parseInt(v, 10);
+         if (isNaN(num) || num < 1 || num > 100) {
+            throw new Error('Limit must be between 1 and 100');
+         }
+         return num;
+      })
+      .optional(),
+   cursor: z.string().optional(),
+});
+
+const buybackExecuteBodySchema = z.object({
+   amountXlm: z
+      .string()
+      .refine(
+         v => !isNaN(parseFloat(v)) && parseFloat(v) > 0,
+         'amountXlm must be a positive number'
+      ),
 });
 
 const router = Router();
@@ -352,6 +399,160 @@ router.get('/:keyId/supply', async (req, res, next) => {
       next(error);
    }
 });
+
+/**
+ * GET /api/v1/keys/:keyId/price-impact?quantity=&direction=buy|sell
+ * Calculate price impact of a given trade quantity and direction.
+ * Used for frontend warnings and pre-trade validation.
+ * Response cached with 10s TTL per key.
+ * No auth required as a read-only check.
+ */
+router.get('/:keyId/price-impact', async (req, res, next) => {
+   const parsed = priceImpactQuerySchema.safeParse(req.query);
+   if (!parsed.success) {
+      sendValidationError(
+         res,
+         'Invalid price-impact query',
+         zodIssuesToDetails(parsed.error.issues)
+      );
+      return;
+   }
+
+   try {
+      const { quantity, direction } = parsed.data;
+      const priceImpact = await getPriceImpact(
+         req.params.keyId,
+         quantity,
+         direction
+      );
+      sendSuccess(res, priceImpact);
+   } catch (error) {
+      if (error instanceof PriceImpactKeyNotFoundError) {
+         sendNotFound(res, 'Key');
+         return;
+      }
+      if (error instanceof Error) {
+         sendError(res, 400, ErrorCode.BAD_REQUEST, error.message);
+         return;
+      }
+      logger.error(
+         { error, keyId: req.params.keyId },
+         'Price impact calculation failed'
+      );
+      next(error);
+   }
+});
+
+/**
+ * GET /api/v1/keys/:keyId/buyback-pool
+ * Get current buyback pool balance for a creator key.
+ * Synced from SellTaxCollected contract events.
+ * Cached with 30s TTL.
+ * No auth required.
+ */
+router.get('/:keyId/buyback-pool', async (req, res, next) => {
+   try {
+      const poolBalance = await getBuybackPoolBalance(req.params.keyId);
+      sendSuccess(res, poolBalance);
+   } catch (error) {
+      if (error instanceof BuybackPoolKeyNotFoundError) {
+         sendNotFound(res, 'Key');
+         return;
+      }
+      logger.error(
+         { error, keyId: req.params.keyId },
+         'Buyback pool fetch failed'
+      );
+      next(error);
+   }
+});
+
+/**
+ * GET /api/v1/keys/:keyId/buyback-pool/history?limit=&cursor=
+ * Get paginated history of buyback pool contributions.
+ * Returns contributions in reverse chronological order.
+ * Uses cursor-based pagination.
+ * No auth required.
+ */
+router.get('/:keyId/buyback-pool/history', async (req, res, next) => {
+   const parsed = buybackPoolHistoryQuerySchema.safeParse(req.query);
+   if (!parsed.success) {
+      sendValidationError(
+         res,
+         'Invalid buyback pool history query',
+         zodIssuesToDetails(parsed.error.issues)
+      );
+      return;
+   }
+
+   try {
+      const { limit, cursor } = parsed.data;
+      const history = await getBuybackPoolHistory(
+         req.params.keyId,
+         limit,
+         cursor
+      );
+      sendSuccess(res, history);
+   } catch (error) {
+      if (error instanceof BuybackPoolKeyNotFoundError) {
+         sendNotFound(res, 'Key');
+         return;
+      }
+      logger.error(
+         { error, keyId: req.params.keyId },
+         'Buyback pool history fetch failed'
+      );
+      next(error);
+   }
+});
+
+/**
+ * POST /api/v1/keys/:keyId/buyback-pool/execute
+ * Admin endpoint to trigger manual buyback from pool.
+ * Restricted to admin role.
+ * Creates an execution record for on-chain processing.
+ */
+router.post(
+   '/:keyId/buyback-pool/execute',
+   requireJwtAuth,
+   adminGuard,
+   async (req, res, next) => {
+      const parsed = buybackExecuteBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+         sendValidationError(
+            res,
+            'Invalid buyback execute request',
+            zodIssuesToDetails(parsed.error.issues)
+         );
+         return;
+      }
+
+      try {
+         const { amountXlm } = parsed.data;
+         const { Decimal } = await import('@prisma/client/runtime/library');
+         const result = await executeBuybackFromPool(
+            req.params.keyId,
+            new Decimal(amountXlm),
+            (req as AdminRequest).adminId
+         );
+         sendSuccess(res, result, 202, 'Buyback execution initiated');
+      } catch (error) {
+         if (error instanceof BuybackPoolKeyNotFoundError) {
+            sendNotFound(res, 'Key');
+            return;
+         }
+         if (error instanceof Error) {
+            sendError(res, 400, ErrorCode.BAD_REQUEST, error.message);
+            return;
+         }
+         logger.error(
+            { error, keyId: req.params.keyId },
+            'Buyback execution failed'
+         );
+         next(error);
+      }
+   }
+);
 
 /**
  * GET /api/v1/keys/:keyId/freeze-status?wallet=
@@ -661,7 +862,10 @@ router.post(
             sendForbidden(res, error.message);
             return;
          }
-         logger.error({ error, keyId: req.params.keyId }, 'Key deprecate failed');
+         logger.error(
+            { error, keyId: req.params.keyId },
+            'Key deprecate failed'
+         );
          next(error);
       }
    }

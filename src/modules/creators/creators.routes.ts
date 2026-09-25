@@ -37,6 +37,7 @@ import {
 import { httpGetCreatorDashboard } from '../creator/creator-dashboard.controller';
 import { httpCreateCreatorProposal } from '../creator/creator-proposals.controller';
 import { createProposalSchema } from '../creator/creator-proposals.schemas';
+import reputationRouter from './creator-reputation.routes';
 
 const creatorsRouter = Router();
 
@@ -271,5 +272,8 @@ creatorsRouter.post(
 creatorsRouter.all('/:keyId/proposals', (_req, res) => {
    res.set('Allow', 'POST').sendStatus(405);
 });
+
+// Mount reputation router for :wallet/reputation endpoints
+creatorsRouter.use(reputationRouter);
 
 export default creatorsRouter;
