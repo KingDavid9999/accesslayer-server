@@ -3,25 +3,45 @@ import { prisma } from '../../utils/prisma.utils';
 import { logger } from '../../utils/logger.utils';
 import { IndexerChainEvent } from '../../utils/indexer-event-processor.utils';
 
-jest.mock('../../utils/prisma.utils', () => ({
-   prisma: {
+jest.mock('../../utils/prisma.utils', () => {
+   const mockPrisma: any = {
       activity: {
          create: jest.fn(),
+         findMany: jest.fn().mockResolvedValue([]),
       },
       keyOwnership: {
          findFirst: jest.fn(),
          upsert: jest.fn(),
+         aggregate: jest.fn().mockResolvedValue({ _sum: { balance: 0 } }),
       },
       creatorPriceSnapshot: {
          findUnique: jest.fn(),
          create: jest.fn(),
          update: jest.fn(),
       },
+      creatorPriceHistory: {
+         create: jest.fn(),
+      },
+      creatorProfile: {
+         findUnique: jest.fn().mockResolvedValue(null),
+         update: jest.fn(),
+      },
       indexedLedger: {
          upsert: jest.fn(),
       },
-   },
-}));
+      // Supports both call styles used in the pipeline:
+      // - prisma.$transaction([...]) — an array of already-invoked promises
+      // - prisma.$transaction(async (tx) => {...}) — a callback receiving
+      //   a transaction client (the mock just passes itself back)
+      $transaction: jest.fn(async (arg: any) => {
+         if (typeof arg === 'function') {
+            return arg(mockPrisma);
+         }
+         return Promise.all(arg);
+      }),
+   };
+   return { prisma: mockPrisma };
+});
 
 jest.mock('../../utils/logger.utils', () => ({
    logger: {
@@ -43,10 +63,13 @@ jest.mock('../../utils/redis.utils', () => ({
 
 describe('processTradeEvents integration test', () => {
    const mockPrisma = prisma as unknown as {
-      activity: { create: jest.Mock };
-      keyOwnership: { findFirst: jest.Mock; upsert: jest.Mock };
+      activity: { create: jest.Mock; findMany: jest.Mock };
+      keyOwnership: { findFirst: jest.Mock; upsert: jest.Mock; aggregate: jest.Mock };
       creatorPriceSnapshot: { findUnique: jest.Mock; create: jest.Mock; update: jest.Mock };
+      creatorPriceHistory: { create: jest.Mock };
+      creatorProfile: { findUnique: jest.Mock; update: jest.Mock };
       indexedLedger: { upsert: jest.Mock };
+      $transaction: jest.Mock;
    };
    const mockLogger = logger as unknown as {
       warn: jest.Mock;
@@ -55,7 +78,16 @@ describe('processTradeEvents integration test', () => {
     beforeEach(() => {
        jest.clearAllMocks();
        mockPrisma.keyOwnership.upsert.mockResolvedValue({ balance: -50 });
+       mockPrisma.keyOwnership.aggregate.mockResolvedValue({ _sum: { balance: 0 } });
+       mockPrisma.activity.findMany.mockResolvedValue([]);
+       mockPrisma.creatorProfile.findUnique.mockResolvedValue(null);
        mockPrisma.indexedLedger.upsert.mockResolvedValue({});
+       mockPrisma.$transaction.mockImplementation(async (arg: any) => {
+          if (typeof arg === 'function') {
+             return arg(mockPrisma);
+          }
+          return Promise.all(arg);
+       });
     });
 
    it('correctly processes and persists a valid sell event', async () => {
@@ -106,7 +138,8 @@ describe('processTradeEvents integration test', () => {
          })
       );
 
-      // 3. Assert upsertPriceSnapshot was triggered
+      // 3. Assert upsertPriceSnapshot was triggered atomically with a
+      // CreatorPriceHistory row (#893)
       expect(mockPrisma.creatorPriceSnapshot.create).toHaveBeenCalledTimes(1);
       expect(mockPrisma.creatorPriceSnapshot.create).toHaveBeenCalledWith({
          data: {
@@ -116,6 +149,24 @@ describe('processTradeEvents integration test', () => {
             lastTradeAt: new Date('2026-07-25T12:00:00.000Z'),
          },
       });
+      expect(mockPrisma.creatorPriceHistory.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.creatorPriceHistory.create).toHaveBeenCalledWith({
+         data: {
+            creatorId: 'creator-abc',
+            price: 2000n,
+            supply: 0n,
+            direction: 'SELL',
+            recordedAt: new Date('2026-07-25T12:00:00.000Z'),
+         },
+      });
+      // Both writes went through the same transaction call. $transaction is
+      // also called once by persistCirculatingSupply (function-style) before
+      // this, so find the array-style call used for the snapshot+history write.
+      const snapshotTxCall = mockPrisma.$transaction.mock.calls.find(
+         (call: any[]) => Array.isArray(call[0])
+      );
+      expect(snapshotTxCall).toBeDefined();
+      expect(snapshotTxCall![0]).toHaveLength(2);
    });
 
    it('deduplicates sell events based on txHash and eventIndex', async () => {

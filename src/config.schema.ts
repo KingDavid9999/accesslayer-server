@@ -212,6 +212,20 @@ export const envSchema = z
          .positive()
          .default(60),
 
+      // Price history cleanup job (#893) — prunes creator_price_history rows
+      // older than the retention window so TWAP/range queries stay fast.
+      PRICE_HISTORY_RETENTION_DAYS: z.coerce
+         .number()
+         .int()
+         .positive()
+         .default(30),
+      PRICE_HISTORY_CLEANUP_ENABLED: z.coerce.boolean().default(true),
+      PRICE_HISTORY_CLEANUP_INTERVAL_MINUTES: z.coerce
+         .number()
+         .int()
+         .positive()
+         .default(60),
+
       // Price movement detection job (feeds price_moved notifications)
       DETECT_PRICE_MOVEMENTS_ENABLED: booleanCoerce.default(true),
       DETECT_PRICE_MOVEMENTS_INTERVAL_MINUTES: z.coerce
