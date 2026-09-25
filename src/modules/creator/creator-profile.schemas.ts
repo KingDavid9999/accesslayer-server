@@ -50,6 +50,8 @@ export const CreatorProfileReadResponseSchema = z.object({
    links: z.array(z.object({ label: z.string(), url: z.string().url() })),
    /** Whether trading is temporarily paused for this key by an admin. */
    tradingPaused: z.boolean(),
+   /** Current milestone tier reached by supply. */
+   currentMilestone: z.number(),
    /** Current key price in stroops as a string. null when no trade has occurred. */
    currentPrice: z.string().nullable(),
    /** Price 24 h ago in stroops as a string. null when no baseline exists. */

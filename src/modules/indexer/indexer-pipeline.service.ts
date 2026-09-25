@@ -1,6 +1,10 @@
 import { createHash } from 'crypto';
 import { prisma } from '../../utils/prisma.utils';
-import { updateOwnership } from '../ownership/ownership.service';
+import {
+    recordKeyPurchase,
+    recordKeySale,
+    updateOwnership,
+} from '../ownership/ownership.service';
 import { upsertPriceSnapshot } from './price-snapshot.service';
 import { updateIndexedLedger } from './ledger-gap-detection.service';
 import { logger } from '../../utils/logger.utils';
@@ -64,12 +68,44 @@ export async function processTradeEvents(events: IndexerChainEvent[]): Promise<v
       // instead of waiting out the full TTL (#785).
       await invalidateVolumeLeaderboardCache();
 
-      // 2. updateOwnership (balance delta: positive for buy, negative for sell)
-      const balanceChange = event.eventType === 'KEY_BOUGHT' ? Number(amount) : -Number(amount);
-      await updateOwnership(actor, creatorId, balanceChange, {
-         event_type: event.eventType === 'KEY_BOUGHT' ? 'buy' : 'sell',
-         ledger_sequence: Number(ledger),
-      });
+      // 2. Ownership read model (#897):
+      // - buys go through recordKeyPurchase so the weighted-average cost
+      //   basis is updated on every buy (reset when rebuilding from zero).
+      // - sells go through recordKeySale so realised P&L is persisted at
+      //   execution time. Falls back to balance-only update when the DB has
+      //   no matching open position (out-of-sync replay) to avoid breaking
+      //   the pipeline.
+      // Event `price` is the unit (per-key) bonding-curve price in stroops,
+      // consistent with upsertPriceSnapshot below.
+      const tradeQty = Number(amount);
+      let pricePerKeyXlm = 0;
+      try {
+         pricePerKeyXlm = Number(BigInt(price as any)) / 10_000_000;
+      } catch {
+         pricePerKeyXlm = Number(price as any);
+      }
+      if (!Number.isFinite(pricePerKeyXlm) || pricePerKeyXlm < 0) {
+         pricePerKeyXlm = 0;
+      }
+      if (event.eventType === 'KEY_BOUGHT') {
+         await recordKeyPurchase(
+            actor,
+            creatorId,
+            tradeQty,
+            pricePerKeyXlm,
+            new Date(tradeAt)
+         );
+      } else {
+         try {
+            await recordKeySale(actor, creatorId, tradeQty, pricePerKeyXlm);
+         } catch {
+            const balanceChange = -tradeQty;
+            await updateOwnership(actor, creatorId, balanceChange, {
+               event_type: 'sell',
+               ledger_sequence: Number(ledger),
+            });
+         }
+      }
 
       // 3. Recompute circulating supply first so the price snapshot/history
       // row records the supply *after* this trade (#893).

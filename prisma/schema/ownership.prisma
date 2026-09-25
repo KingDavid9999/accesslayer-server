@@ -13,6 +13,9 @@ model KeyOwnership {
    balance       Decimal  @default(0)
    costBasis     Decimal? @default(0)
 
+   /// Lifetime realised P&L in XLM, persisted at sell execution time (#897).
+   realisedPnl   Decimal? @default(0)
+
    /// Timestamp of the owner's most recent buy of this key, if any.
    lastBuyAt     DateTime?
 

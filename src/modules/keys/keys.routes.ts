@@ -34,6 +34,7 @@ import {
 import { prisma } from '../../utils/prisma.utils';
 import { logger } from '../../utils/logger.utils';
 import { invalidateCreatorDashboardCache } from '../creator/creator-dashboard.service';
+import { creatorProfileExists, getCreatorProfile } from '../creator/creator-profile.service';
 
 import { cacheGetJson, cacheSetJson } from '../../utils/redis.utils';
 import { fetchCreatorProfilesByIds } from '../../utils/creator-batch.utils';
@@ -184,6 +185,23 @@ router.get('/search', async (req, res, next) => {
          sendError(res, 400, ErrorCode.VALIDATION_ERROR, error.message);
          return;
       }
+      next(error);
+   }
+});
+
+/**
+ * GET /api/v1/keys/:keyId
+ * Public key detail response includes supply milestone metadata.
+ */
+router.get('/:keyId', async (req, res, next) => {
+   try {
+      const keyId = String(req.params.keyId);
+      if (!(await creatorProfileExists(keyId))) {
+         return sendNotFound(res, 'Key');
+      }
+      const profile = await getCreatorProfile(keyId);
+      sendSuccess(res, profile, 200, 'Key retrieved successfully');
+   } catch (error) {
       next(error);
    }
 });

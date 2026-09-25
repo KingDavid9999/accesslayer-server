@@ -26,6 +26,10 @@ import {
 import { getKeyFees, KeyNotFoundError } from '../keys/key-fees.service';
 import { computeSellPayout, getSellUnitPrice } from '../../utils/pricing.utils';
 import {
+   computeCostBasisAfterSale,
+   computeRealisedPnlForSale,
+} from '../ownership/ownership.service';
+import {
    logSlippageRejection,
    sendSlippageExceeded,
    SlippageExceededError,
@@ -110,9 +114,11 @@ export async function httpSellCreatorKey(
                   creatorId: creator.id,
                },
             },
-            select: { balance: true },
+            select: { balance: true, costBasis: true, realisedPnl: true },
          });
-         const balance = Number(ownership?.balance ?? 0);
+         const balance = Number((ownership as any)?.balance ?? 0);
+         const costBasis = Number((ownership as any)?.costBasis ?? 0);
+         const prevRealised = Number((ownership as any)?.realisedPnl ?? 0);
          if (balance < body.quantity) {
             throw new InsufficientKeyBalanceForSellError();
          }
@@ -137,14 +143,32 @@ export async function httpSellCreatorKey(
          const newSupply = supply - body.quantity;
          const newBalance = balance - body.quantity;
 
-         await tx.keyOwnership.update({
+         // Persist realised P&L at execution time (#897). Partial sells keep
+         // the average cost basis; full sells reset it to zero.
+         const realisedForTrade = computeRealisedPnlForSale(
+            costBasis,
+            currentPriceXlm,
+            body.quantity
+         );
+         const newCostBasis = computeCostBasisAfterSale(
+            costBasis,
+            balance,
+            body.quantity
+         );
+         const newRealised = prevRealised + realisedForTrade;
+
+         await (tx.keyOwnership.update as any)({
             where: {
                ownerAddress_creatorId: {
                   ownerAddress: walletAddress,
                   creatorId: creator.id,
                },
             },
-            data: { balance: newBalance },
+            data: {
+               balance: newBalance,
+               costBasis: newCostBasis,
+               realisedPnl: newRealised,
+            },
          });
          await tx.creatorProfile.update({
             where: { id: creator.id },
@@ -161,6 +185,8 @@ export async function httpSellCreatorKey(
                   minPrice: body.min_price,
                   currentPrice: currentPriceXlm,
                   payoutXlm,
+                  costBasis,
+                  realisedPnl: realisedForTrade,
                   balanceAfter: newBalance,
                   circulatingSupplyAfter: newSupply,
                },
@@ -177,6 +203,7 @@ export async function httpSellCreatorKey(
                   minPrice: body.min_price,
                   currentPrice: currentPriceXlm,
                   payoutXlm,
+                  realisedPnl: realisedForTrade,
                },
             },
          });
@@ -186,6 +213,7 @@ export async function httpSellCreatorKey(
             minPrice: body.min_price,
             currentPrice: currentPriceXlm,
             payoutXlm,
+            realisedPnl: realisedForTrade,
             balanceAfter: newBalance,
             circulatingSupplyAfter: newSupply,
          };
