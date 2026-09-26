@@ -13,6 +13,7 @@ import {
 import { ErrorCode } from '../../constants/error.constants';
 import {
    getKeyPriceHistory,
+   getKeyPriceSnapshots,
    PRICE_HISTORY_INTERVALS,
 } from './key-price-history.service';
 import { getKeyFees, KeyNotFoundError } from './key-fees.service';
@@ -88,7 +89,11 @@ import {
 const priceHistoryQuerySchema = z.object({
    from: z.string().datetime(),
    to: z.string().datetime(),
-   interval: z.enum(PRICE_HISTORY_INTERVALS),
+   // Optional (#893): when omitted, the endpoint returns every raw price
+   // snapshot in range (price, supply, direction, timestamp) — the shape
+   // TWAP calculations need. When provided, it keeps the legacy
+   // fixed-bucket downsampled series for chart consumers.
+   interval: z.enum(PRICE_HISTORY_INTERVALS).optional(),
 });
 
 const searchQuerySchema = z.object({
@@ -516,6 +521,18 @@ router.get('/:keyId/cooldown', async (req, res, next) => {
 });
 
 /**
+ * GET /api/v1/keys/:keyId/price-history?from=&to=[&interval=1h|24h|7d]
+ *
+ * Returns price snapshots recorded for a key within [from, to], indexed on
+ * (creatorId, recordedAt) for fast range scans (#893).
+ *
+ * - Without `interval`: every raw snapshot in range — price, post-trade
+ *   supply, and trade direction — ordered oldest first. This is the input
+ *   TWAP calculations need.
+ * - With `interval`: a downsampled, chart-friendly series (legacy shape).
+ */
+
+/**
  * GET /api/v1/keys/:keyId/holding-capacity?wallet=
  * Wallet holding, holder cap, and remaining purchase capacity on a key.
  */
@@ -570,14 +587,28 @@ router.get('/:keyId/price-history', async (req, res, next) => {
       return;
    }
    try {
+      if (parsed.data.interval) {
+         sendSuccess(
+            res,
+            await getKeyPriceHistory(
+               req.params.keyId,
+               from,
+               to,
+               parsed.data.interval
+            )
+         );
+         return;
+      }
+
+      const snapshots = await getKeyPriceSnapshots(req.params.keyId, from, to);
       sendSuccess(
          res,
-         await getKeyPriceHistory(
-            req.params.keyId,
-            from,
-            to,
-            parsed.data.interval
-         )
+         snapshots.map(snapshot => ({
+            timestamp: snapshot.timestamp,
+            price: snapshot.price.toString(),
+            supply: snapshot.supply.toString(),
+            direction: snapshot.direction,
+         }))
       );
    } catch (error) {
       next(error);
