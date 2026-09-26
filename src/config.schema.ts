@@ -318,6 +318,22 @@ export const envSchema = z
          .positive()
          .default(1000),
 
+      // Oracle price feed staleness threshold and cache TTL.
+      // ORACLE_STALENESS_THRESHOLD_MS: how old an oracle price can be before
+      //   the response includes `isStale: true`. Default: 5 minutes.
+      // ORACLE_CACHE_TTL_MS: how long the oracle-price response is cached in
+      //   Redis. Should match the typical oracle update frequency. Default: 30 s.
+      ORACLE_STALENESS_THRESHOLD_MS: z.coerce
+         .number()
+         .int()
+         .positive()
+         .default(300_000),
+      ORACLE_CACHE_TTL_MS: z.coerce
+         .number()
+         .int()
+         .positive()
+         .default(30_000),
+
    })
    .superRefine((data, ctx) => {
       if (data.MODE === 'production' && data.STELLAR_NETWORK === 'testnet') {

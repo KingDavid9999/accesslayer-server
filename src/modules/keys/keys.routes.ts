@@ -17,8 +17,19 @@ import {
    PRICE_HISTORY_INTERVALS,
 } from './key-price-history.service';
 import { getKeyFees, KeyNotFoundError } from './key-fees.service';
+import {
+   getOraclePrice,
+   KeyNotFoundError as OracleKeyNotFoundError,
+   OraclePriceNotFoundError,
+} from './oracle-price.service';
+import { cacheControl } from '../../middlewares/cache-control.middleware';
+import { envConfig } from '../../config';
 import { getKeyProposals } from './key-proposals.service';
 import { getKeySupply } from './key-supply.service';
+import {
+   analyticsWindowQuerySchema,
+   getKeyAnalytics,
+} from './key-analytics.service';
 import { KeySearchQueryTooShortError, searchKeys } from './key-search.service';
 import { KEY_SEARCH_MIN_QUERY_LENGTH } from '../../constants/notifications.constants';
 import dividendRouter from '../dividends/dividend.routes';
@@ -56,6 +67,7 @@ import {
    processBuyback,
 } from './key-deprecation.service';
 import { getKeyCooldown } from './key-cooldown.service';
+import { getKeyHoldingCapacity } from './key-holding-capacity.service';
 import { StellarAddressSchema } from '../wallet/wallet.schemas';
 import {
    freezePosition,
@@ -188,6 +200,63 @@ router.get('/search', async (req, res, next) => {
       next(error);
    }
 });
+
+/**
+ * GET /api/v1/keys/:keyId/oracle-price
+ *
+ * Returns the current oracle price (synced from OraclePriceUpdated contract
+ * events), the bonding-curve spot price, the deviation percentage, and a
+ * staleness flag when the oracle feed has not been updated within
+ * ORACLE_STALENESS_THRESHOLD_MS.
+ *
+ * Response is cached in Redis for ORACLE_CACHE_TTL_MS to match the expected
+ * oracle update frequency without hammering the database.
+ *
+ * 404 is returned when either the key or the oracle price row does not exist.
+ */
+router.get(
+   '/:keyId/oracle-price',
+   cacheControl({
+      maxAge: Math.floor(envConfig.ORACLE_CACHE_TTL_MS / 1000),
+      type: 'public',
+      mustRevalidate: true,
+   }),
+   async (req, res, next) => {
+      const keyId = String(req.params.keyId);
+      const cacheKey = `oracle-price:${keyId}`;
+      try {
+         const cached = await cacheGetJson<ReturnType<typeof getOraclePrice> extends Promise<infer T> ? T : never>(cacheKey);
+         if (cached !== null) {
+            return sendSuccess(res, cached);
+         }
+
+         const result = await getOraclePrice(keyId);
+
+         // Cache for ORACLE_CACHE_TTL_MS (converted to whole seconds).
+         const ttlSeconds = Math.max(
+            1,
+            Math.floor(envConfig.ORACLE_CACHE_TTL_MS / 1000)
+         );
+         await cacheSetJson(cacheKey, result, ttlSeconds);
+
+         sendSuccess(res, result);
+      } catch (error) {
+         if (
+            error instanceof OracleKeyNotFoundError ||
+            error instanceof OraclePriceNotFoundError
+         ) {
+            sendNotFound(
+               res,
+               error instanceof OraclePriceNotFoundError
+                  ? 'Oracle price'
+                  : 'Key'
+            );
+            return;
+         }
+         next(error);
+      }
+   }
+);
 
 /**
  * GET /api/v1/keys/:keyId
@@ -359,6 +428,35 @@ router.get('/:keyId/supply', async (req, res, next) => {
 });
 
 /**
+ * GET /api/v1/keys/:keyId/analytics?from=&to=
+ * Trade count, unique traders, and total volume for a key, optionally
+ * windowed by trade timestamp. Cached 60s per key/window (#916).
+ */
+router.get('/:keyId/analytics', async (req, res, next) => {
+   const parsed = analyticsWindowQuerySchema.safeParse(req.query);
+   if (!parsed.success) {
+      sendValidationError(
+         res,
+         'Invalid analytics query',
+         zodIssuesToDetails(parsed.error.issues)
+      );
+      return;
+   }
+   try {
+      sendSuccess(
+         res,
+         await getKeyAnalytics(String(req.params.keyId), parsed.data)
+      );
+   } catch (error) {
+      if (error instanceof KeyNotFoundError) {
+         sendNotFound(res, 'Key');
+         return;
+      }
+      next(error);
+   }
+});
+
+/**
  * GET /api/v1/keys/:keyId/freeze-status?wallet=
  * Frozen and liquid balance for a holder on a key.
  */
@@ -425,6 +523,38 @@ router.get('/:keyId/cooldown', async (req, res, next) => {
  *   TWAP calculations need.
  * - With `interval`: a downsampled, chart-friendly series (legacy shape).
  */
+
+/**
+ * GET /api/v1/keys/:keyId/holding-capacity?wallet=
+ * Wallet holding, holder cap, and remaining purchase capacity on a key.
+ */
+router.get('/:keyId/holding-capacity', async (req, res, next) => {
+   const parsed = walletQuerySchema.safeParse(req.query);
+   if (!parsed.success) {
+      sendValidationError(
+         res,
+         'Invalid query parameters',
+         zodIssuesToDetails(parsed.error.issues)
+      );
+      return;
+   }
+   try {
+      sendSuccess(
+         res,
+         await getKeyHoldingCapacity(
+            String(req.params.keyId),
+            parsed.data.wallet
+         )
+      );
+   } catch (error) {
+      if (error instanceof KeyNotFoundError) {
+         sendNotFound(res, 'Key');
+         return;
+      }
+      next(error);
+   }
+});
+
 router.get('/:keyId/price-history', async (req, res, next) => {
    const parsed = priceHistoryQuerySchema.safeParse(req.query);
    if (!parsed.success) {
