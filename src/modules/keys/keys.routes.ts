@@ -677,7 +677,7 @@ router.post(
          const result = await executeBuybackFromPool(
             keyId,
             new Decimal(amountXlm),
-            (req as AdminRequest).adminId
+            (req as AdminRequest).adminId || ''
          );
          sendSuccess(res, result, 202, 'Buyback execution initiated');
       } catch (error) {

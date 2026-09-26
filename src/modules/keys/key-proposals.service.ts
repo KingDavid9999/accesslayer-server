@@ -60,7 +60,7 @@ export async function getKeyProposals(
 export async function getProposalForVoting(
    keyId: string,
    proposalId: string
-): Promise<{ exists: boolean; status?: ProposalStatus }> {
+): Promise<{ exists: boolean; status?: ProposalStatus; options?: string[] }> {
    const proposal = await prisma.governanceProposal.findFirst({
       where: {
          keyId,
@@ -68,6 +68,7 @@ export async function getProposalForVoting(
       },
       select: {
          status: true,
+         options: true,
       },
    });
 
@@ -78,5 +79,6 @@ export async function getProposalForVoting(
    return {
       exists: true,
       status: proposal.status as ProposalStatus,
+      options: proposal.options as string[],
    };
 }
