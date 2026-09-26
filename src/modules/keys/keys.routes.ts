@@ -124,6 +124,8 @@ const walletQuerySchema = z.object({
 const lpHistoryQuerySchema = z.object({
    limit: z.coerce.number().int().positive().max(100).optional().default(20),
    cursor: z.string().min(1).optional(),
+});
+
 const priceImpactQuerySchema = z.object({
    quantity: z.string().transform(v => {
       const num = parseInt(v, 10);
