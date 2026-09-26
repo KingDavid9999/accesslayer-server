@@ -64,11 +64,6 @@ jest.mock('../../utils/redis.utils', () => ({
    cacheInvalidate: mockCacheInvalidate,
 }));
 
-import { processTradeEvents } from './indexer-pipeline.service';
-import { prisma } from '../../utils/prisma.utils';
-import { logger } from '../../utils/logger.utils';
-import { IndexerChainEvent } from '../../utils/indexer-event-processor.utils';
-
 describe('processTradeEvents integration test', () => {
    const mockPrisma = prisma as unknown as {
       activity: { create: jest.Mock; findMany: jest.Mock };
