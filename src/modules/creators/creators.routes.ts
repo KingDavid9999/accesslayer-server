@@ -41,7 +41,7 @@ import {
 import { httpGetCreatorDashboard } from '../creator/creator-dashboard.controller';
 import { httpCreateCreatorProposal } from '../creator/creator-proposals.controller';
 import { createProposalSchema } from '../creator/creator-proposals.schemas';
-import reputationRouter from './creator-reputation.routes';
+import reputationRouter from '../creator/creator-reputation.routes';
 
 const creatorsRouter = Router();
 

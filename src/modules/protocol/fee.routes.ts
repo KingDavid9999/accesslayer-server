@@ -90,10 +90,8 @@ router.patch('/tiers', requireJwtAuth, adminGuard, async (req, res, next) => {
 
    try {
       const { tiers } = parsed.data;
-      const updatedTiers = await updateFeeTierConfig(
-         tiers,
-         (req as AdminRequest).adminId
-      );
+      const adminId = (req as AdminRequest).adminId || '';
+      const updatedTiers = await updateFeeTierConfig(tiers, adminId);
       sendSuccess(
          res,
          { tiers: updatedTiers },

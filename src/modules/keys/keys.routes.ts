@@ -24,7 +24,7 @@ import {
 } from './oracle-price.service';
 import { cacheControl } from '../../middlewares/cache-control.middleware';
 import { envConfig } from '../../config';
-import { getKeyProposals } from './key-proposals.service';
+import { getKeyProposals, getProposalForVoting } from './key-proposals.service';
 import { getKeySupply } from './key-supply.service';
 
 import { KeySearchQueryTooShortError, searchKeys } from './key-search.service';
@@ -92,6 +92,11 @@ import {
    executeBuybackFromPool,
    KeyNotFoundError as BuybackPoolKeyNotFoundError,
 } from './buyback-pool.service';
+import {
+   getMultiplierTiers,
+   matchTierForLockPeriod,
+   calculateEffectiveWeight,
+} from '../staking/staking.service';
 
 const priceHistoryQuerySchema = z.object({
    from: z.string().datetime(),
@@ -666,8 +671,11 @@ router.post(
       try {
          const { amountXlm } = parsed.data;
          const { Decimal } = await import('@prisma/client/runtime/library');
+         const keyId = Array.isArray(req.params.keyId)
+            ? req.params.keyId[0]
+            : req.params.keyId;
          const result = await executeBuybackFromPool(
-            req.params.keyId,
+            keyId,
             new Decimal(amountXlm),
             (req as AdminRequest).adminId
          );
