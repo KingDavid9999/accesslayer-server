@@ -14,17 +14,3 @@ datasource db {
   provider          = "postgres"
    url      = env("DATABASE_URL") // You can safely ignore the error on this line.
 }
-
-import "./schema/reputation.prisma"
-import "./schema/buyback.prisma"
-import "./schema/activity.prisma"
-import "./schema/alert.prisma"
-import "./schema/audit.prisma"
-import "./schema/creator.prisma"
-import "./schema/dividend.prisma"
-import "./schema/follow.prisma"
-import "./schema/follower.prisma"
-import "./schema/wallet.prisma"
-import "./schema/whitelist.prisma"
-import "./schema/webhook.prisma"
-
