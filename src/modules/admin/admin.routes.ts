@@ -148,7 +148,7 @@ adminRouter.get('/analytics', adminGuard, async (req: AdminRequest, res, next) =
  * number of keys holding LP, and the number of allocation events. Sourced
  * from LPAllocationSent contract events. Cached 60s (#943).
  */
-adminRouter.get('/lp-overview', adminGuard, async (req: AdminRequest, res, next) => {
+adminRouter.get('/lp-overview', adminGuard, async (_req: AdminRequest, res, next) => {
    try {
       sendSuccess(res, await getProtocolLpOverview());
    } catch (error) {
