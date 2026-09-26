@@ -5,9 +5,7 @@ import {
    sendNotFound,
    sendValidationError,
    zodIssuesToDetails,
-   sendError,
 } from '../../utils/api-response.utils';
-import { ErrorCode } from '../../constants/error.constants';
 import {
    getCreatorReputation,
    getCreatorReputationHistory,
@@ -16,13 +14,16 @@ import {
 import { logger } from '../../utils/logger.utils';
 
 const reputationHistoryQuerySchema = z.object({
-   limit: z.string().transform(v => {
-      const num = parseInt(v, 10);
-      if (isNaN(num) || num < 1 || num > 100) {
-         throw new Error('Limit must be between 1 and 100');
-      }
-      return num;
-   }).optional(),
+   limit: z
+      .string()
+      .transform(v => {
+         const num = parseInt(v, 10);
+         if (isNaN(num) || num < 1 || num > 100) {
+            throw new Error('Limit must be between 1 and 100');
+         }
+         return num;
+      })
+      .optional(),
    cursor: z.string().optional(),
 });
 

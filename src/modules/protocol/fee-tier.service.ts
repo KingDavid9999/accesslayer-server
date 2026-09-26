@@ -3,7 +3,6 @@ import { cacheGetJson, cacheSetJson } from '../../utils/redis.utils';
 import { createAuditEntry } from '../admin/audit-log.service';
 import { emitAuditEvent } from '../../utils/audit.utils';
 import { logger } from '../../utils/logger.utils';
-import { Decimal } from '@prisma/client/runtime/library';
 
 export interface FeeTier {
    volumeThreshold: number; // In stroops (XLM * 10^7)
@@ -25,7 +24,11 @@ const CACHE_KEY = 'protocol:current-fee-tier';
  * Default fee tier configuration.
  * Tiers are evaluated in ascending order; the highest tier with volume >= threshold is selected.
  */
-const DEFAULT_TIERS: Array<{ volumeThreshold: number; feeBps: number; label: string }> = [
+const DEFAULT_TIERS: Array<{
+   volumeThreshold: number;
+   feeBps: number;
+   label: string;
+}> = [
    { volumeThreshold: 0, feeBps: 500, label: 'TIER_1' },
    { volumeThreshold: 1_000_000_000_000, feeBps: 400, label: 'TIER_2' }, // 100,000 XLM
    { volumeThreshold: 5_000_000_000_000, feeBps: 300, label: 'TIER_3' }, // 500,000 XLM
@@ -112,7 +115,9 @@ export async function getCurrentFeeTier(): Promise<CurrentFeeResponse> {
    const tiers = await loadFeeTierConfig();
 
    // Sort by volume threshold descending to find the highest applicable tier
-   const sortedTiers = [...tiers].sort((a, b) => b.volumeThreshold - a.volumeThreshold);
+   const sortedTiers = [...tiers].sort(
+      (a, b) => b.volumeThreshold - a.volumeThreshold
+   );
 
    let activeTier = tiers[0]; // Default to first tier
    let nextTierIndex = -1;
@@ -200,7 +205,7 @@ export async function updateFeeTierConfig(
       label: tier.label || `TIER_${index + 1}`,
    }));
 
-   const config = await prisma.protocolConfig.upsert({
+   await prisma.protocolConfig.upsert({
       where: { id: 'default' },
       create: {
          id: 'default',
@@ -234,7 +239,10 @@ export async function updateFeeTierConfig(
       metadata: { tiers: updatedTiers },
    });
 
-   logger.info({ adminWallet, tiers: updatedTiers }, 'Fee tier configuration updated');
+   logger.info(
+      { adminWallet, tiers: updatedTiers },
+      'Fee tier configuration updated'
+   );
 
    return updatedTiers;
 }

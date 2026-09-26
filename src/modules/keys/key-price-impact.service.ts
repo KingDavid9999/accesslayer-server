@@ -1,6 +1,6 @@
 import { prisma } from '../../utils/prisma.utils';
 import { cacheGetJson, cacheSetJson } from '../../utils/redis.utils';
-import { getBuyUnitPrice, getSellUnitPrice, computeBuyCost, computeSellPayout } from '../../utils/pricing.utils';
+import { getBuyUnitPrice, getSellUnitPrice } from '../../utils/pricing.utils';
 import { logger } from '../../utils/logger.utils';
 
 export class KeyNotFoundError extends Error {

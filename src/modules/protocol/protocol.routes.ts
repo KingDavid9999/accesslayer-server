@@ -257,7 +257,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
  * Cached with 60s TTL.
  * No auth required.
  */
-router.get('/fees/current', async (req: Request, res: Response) => {
+router.get('/fees/current', async (_req: Request, res: Response) => {
    try {
       const currentFee = await getCurrentFeeTier();
       sendSuccess(res, currentFee);
@@ -277,7 +277,7 @@ router.get('/fees/current', async (req: Request, res: Response) => {
  * Get all configured fee tiers.
  * No auth required.
  */
-router.get('/fees/tiers', async (req: Request, res: Response) => {
+router.get('/fees/tiers', async (_req: Request, res: Response) => {
    try {
       const tiers = await loadFeeTierConfig();
       sendSuccess(res, { tiers });

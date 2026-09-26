@@ -60,7 +60,6 @@ import { cacheGetJson, cacheSetJson } from '../../utils/redis.utils';
 import { fetchCreatorProfilesByIds } from '../../utils/creator-batch.utils';
 import {
    castKeyProposalVote,
-   getProposalForVoting,
    HolderNotEligibleError,
    DuplicateVoteError,
    OptionIndexOutOfRangeError,
@@ -333,7 +332,12 @@ router.get(
       const keyId = String(req.params.keyId);
       const cacheKey = `oracle-price:${keyId}`;
       try {
-         const cached = await cacheGetJson<ReturnType<typeof getOraclePrice> extends Promise<infer T> ? T : never>(cacheKey);
+         const cached =
+            await cacheGetJson<
+               ReturnType<typeof getOraclePrice> extends Promise<infer T>
+                  ? T
+                  : never
+            >(cacheKey);
          if (cached !== null) {
             return sendSuccess(res, cached);
          }
