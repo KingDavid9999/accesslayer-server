@@ -27,6 +27,7 @@ import followerRouter from './followers/follower.routes';
 import protocolRouter from './protocol/protocol.routes';
 import revenueRouter from './revenue/revenue.routes';
 import stakerRouter from './revenue/staker-revenue.routes';
+import stakingRouter from './staking/vault.routes';
 import portfolioRouter from './portfolio/portfolio.routes';
 import { BASE as CREATORS_BASE } from '../constants/creator.constants';
 
@@ -71,6 +72,7 @@ router.use('/followers', routeBodySizeLimit('default'), followerRouter);
 router.use('/protocol', routeBodySizeLimit('default'), protocolRouter);
 router.use('/revenue', routeBodySizeLimit('default'), revenueRouter);
 router.use('/staker', routeBodySizeLimit('default'), stakerRouter);
+router.use('/staking', routeBodySizeLimit('default'), stakingRouter);
 router.use('/portfolio', routeBodySizeLimit('default'), portfolioRouter);
 router.use('/watchlist', routeBodySizeLimit('default'), watchlistRouter);
 router.use('/investor/watchlist', routeBodySizeLimit('default'), watchlistRouter);
