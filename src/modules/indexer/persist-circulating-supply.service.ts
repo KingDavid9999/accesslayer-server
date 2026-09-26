@@ -28,7 +28,7 @@ export async function persistCirculatingSupply(creatorId: string): Promise<numbe
                select: { currentMilestone: true },
             });
 
-            const nowMilestone = getTierForSupply(supply);
+            const newMilestone = getTierForSupply(supply);
             const oldMilestone = oldCreator?.currentMilestone ?? 0;
 
             await transaction.creatorProfile.update({
@@ -64,4 +64,5 @@ export async function persistCirculatingSupply(creatorId: string): Promise<numbe
       }
    }
    throw lastError;
+	
 }
