@@ -4,7 +4,6 @@ import { Router } from 'express';
 import { sendNotFound, sendSuccess } from '../../utils/api-response.utils';
 import {
    httpListCreators,
-   httpGetCreator,
    httpGetCreatorPortfolioKeys,
    httpGetCreatorStats,
    httpGetTrendingCreators,
@@ -13,6 +12,10 @@ import {
 } from './creators.controllers';
 import { httpGetCreatorHolders } from './creator-holders.controller';
 import { httpGetVolumeLeaderboard } from './creator-leaderboard-volume.controller';
+import {
+   httpGetCreatorPublicProfile,
+   httpGetCreatorIssuedKeys,
+} from './creator-public-profile.controller';
 import { cacheControl } from '../../middlewares/cache-control.middleware';
 import { CREATOR_PUBLIC_ROUTE_CACHE_PRESETS } from '../../constants/creator-public-cache.constants';
 import { CREATOR_PUBLIC_ROUTE_NAMES } from '../../constants/creator-public-routes.constants';
@@ -195,16 +198,45 @@ creatorsRouter.get(
 );
 
 /**
- * GET /api/v1/creators/:id
+ * GET /api/v1/creators/:id/keys
  *
- * Get public details for a specific creator.
- * Public endpoint with 5-minute cache.
+ * Returns a cursor-paginated list of keys issued by the creator identified by
+ * :id (profile ID or handle). Stats include total keys, total holders, and
+ * total trading volume across all keys.
+ * Public endpoint with no authentication required.
  */
-creatorsRouter.get('/:wallet/keys', httpGetCreatorPortfolioKeys);
-creatorsRouter.all('/:wallet/keys', (_req, res) => {
+creatorsRouter.get(
+   '/:id/keys',
+   validateCreatorParam('id'),
+   createCreatorReadMetricsMiddleware('detail'),
+   cacheControl(
+      CREATOR_PUBLIC_ROUTE_CACHE_PRESETS[CREATOR_PUBLIC_ROUTE_NAMES.GET_KEYS]
+   ),
+   httpGetCreatorIssuedKeys
+);
+// 405 handler for /:id/keys
+creatorsRouter.all('/:id/keys', (_req, res) => {
    res.set('Allow', 'GET').sendStatus(405);
 });
 
+/**
+ * GET /api/v1/creators/:wallet/keys  (legacy — wallet address lookup)
+ *
+ * Returns keys owned by a wallet. Superseded by GET /creators/:id/keys for
+ * profile-ID / handle-based lookups, but kept for backward compatibility.
+ */
+creatorsRouter.get('/:wallet/portfolio-keys', httpGetCreatorPortfolioKeys);
+creatorsRouter.all('/:wallet/portfolio-keys', (_req, res) => {
+   res.set('Allow', 'GET').sendStatus(405);
+});
+
+/**
+ * GET /api/v1/creators/:id
+ *
+ * Returns public profile metadata for a creator together with social stats:
+ * total holders, total trading volume, and follower count.
+ * Public endpoint with 5-minute cache. No authentication required.
+ */
 creatorsRouter.get(
    '/:id',
    validateCreatorParam('id'),
@@ -212,7 +244,7 @@ creatorsRouter.get(
    cacheControl(
       CREATOR_PUBLIC_ROUTE_CACHE_PRESETS[CREATOR_PUBLIC_ROUTE_NAMES.GET_PROFILE]
    ),
-   httpGetCreator
+   httpGetCreatorPublicProfile
 );
 // 405 handler for /:id
 creatorsRouter.all('/:id', (_req, res) => {
