@@ -27,7 +27,10 @@ import followerRouter from './followers/follower.routes';
 import protocolRouter from './protocol/protocol.routes';
 import revenueRouter from './revenue/revenue.routes';
 import stakerRouter from './revenue/staker-revenue.routes';
+import vaultRouter from './staking/vault.routes';
 import portfolioRouter from './portfolio/portfolio.routes';
+import stakingRouter from './staking/staking.routes';
+import sellersRouter from './sellers/sellers.routes';
 import { BASE as CREATORS_BASE } from '../constants/creator.constants';
 
 const router = Router();
@@ -63,7 +66,11 @@ router.use('/alerts', routeBodySizeLimit('default'), alertsRouter);
 router.use('/trading', routeBodySizeLimit('default'), tradingRouter);
 router.use('/internal', routeBodySizeLimit('default'), sequencerRouter);
 router.use('/keys', routeBodySizeLimit('default'), keysRouter);
-router.use('/notifications', routeBodySizeLimit('default'), notificationsRouter);
+router.use(
+   '/notifications',
+   routeBodySizeLimit('default'),
+   notificationsRouter
+);
 router.use('/webhooks', routeBodySizeLimit('default'), horizonWebhookRouter);
 router.use('/vesting', routeBodySizeLimit('default'), vestingRouter);
 router.use('/investor', routeBodySizeLimit('default'), investorRouter);
@@ -71,8 +78,11 @@ router.use('/followers', routeBodySizeLimit('default'), followerRouter);
 router.use('/protocol', routeBodySizeLimit('default'), protocolRouter);
 router.use('/revenue', routeBodySizeLimit('default'), revenueRouter);
 router.use('/staker', routeBodySizeLimit('default'), stakerRouter);
+router.use('/staking', routeBodySizeLimit('default'), vaultRouter);
 router.use('/portfolio', routeBodySizeLimit('default'), portfolioRouter);
 router.use('/watchlist', routeBodySizeLimit('default'), watchlistRouter);
 router.use('/investor/watchlist', routeBodySizeLimit('default'), watchlistRouter);
+router.use('/staking', routeBodySizeLimit('default'), stakingRouter);
+router.use('/sellers', routeBodySizeLimit('default'), sellersRouter);
 
 export default router;

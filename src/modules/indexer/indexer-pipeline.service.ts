@@ -25,7 +25,10 @@ import { invalidateCreatorPortfolioStatsCache } from '../creators/creator-portfo
  * - Parses and validates each event.
  * - Creates an Activity record (representing the trade).
  * - Updates the KeyOwnership read model.
- * - Upserts the CreatorPriceSnapshot read model.
+ * - Recomputes circulating supply from the activity log.
+ * - Upserts the CreatorPriceSnapshot read model and appends a
+ *   CreatorPriceHistory row (price, post-trade supply, direction) in the
+ *   same transaction, for TWAP calculations and historical price charts (#893).
  * - Writes a checkpoint record of the highest ledger processed.
  */
 export async function processTradeEvents(
@@ -133,17 +136,23 @@ export async function processTradeEvents(
          }
       }
 
-      // 3. upsertPriceSnapshot
+      // 3. Recompute circulating supply first so the price snapshot/history
+      // row records the supply *after* this trade (#893).
+      const supplyAfterTrade = await persistCirculatingSupply(creatorId);
+
+      // 4. upsertPriceSnapshot — records the price snapshot atomically with
+      // the post-trade supply and trade direction, for TWAP and historical
+      // price charts (#893).
       await upsertPriceSnapshot({
          creatorId,
          price: BigInt(price),
          tradeAt: new Date(tradeAt),
          ledger: Number(ledger),
+         supply: BigInt(supplyAfterTrade),
+         direction: event.eventType === 'KEY_BOUGHT' ? 'BUY' : 'SELL',
       });
 
-      await persistCirculatingSupply(creatorId);
-
-      // 4. Emit a structured log for confirmed sells, mirroring buy-side logging.
+      // 5. Emit a structured log for confirmed sells, mirroring buy-side logging.
       if (event.eventType === 'KEY_SOLD') {
          const [creatorProfile, supplyAggregate] = await Promise.all([
             prisma.creatorProfile.findUnique({
