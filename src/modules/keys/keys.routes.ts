@@ -44,7 +44,10 @@ import {
 import { prisma } from '../../utils/prisma.utils';
 import { logger } from '../../utils/logger.utils';
 import { invalidateCreatorDashboardCache } from '../creator/creator-dashboard.service';
-import { creatorProfileExists, getCreatorProfile } from '../creator/creator-profile.service';
+import {
+   creatorProfileExists,
+   getCreatorProfile,
+} from '../creator/creator-profile.service';
 
 import { cacheGetJson, cacheSetJson } from '../../utils/redis.utils';
 import { fetchCreatorProfilesByIds } from '../../utils/creator-batch.utils';
@@ -76,6 +79,11 @@ import {
    PositionNotFoundError,
    unfreezePosition,
 } from './key-freeze.service';
+import {
+   getMultiplierTiers,
+   matchTierForLockPeriod,
+   calculateEffectiveWeight,
+} from '../staking/staking.service';
 
 const priceHistoryQuerySchema = z.object({
    from: z.string().datetime(),
@@ -790,7 +798,10 @@ router.post(
             sendForbidden(res, error.message);
             return;
          }
-         logger.error({ error, keyId: req.params.keyId }, 'Key deprecate failed');
+         logger.error(
+            { error, keyId: req.params.keyId },
+            'Key deprecate failed'
+         );
          next(error);
       }
    }
@@ -905,6 +916,20 @@ router.get(
             return;
          }
 
+         const tiers = await getMultiplierTiers();
+         let lockPeriodSeconds = 0;
+         if (ownership.lockupExpiresAt) {
+            const startTime = ownership.lastBuyAt ?? ownership.createdAt;
+            const diffMs =
+               ownership.lockupExpiresAt.getTime() - startTime.getTime();
+            lockPeriodSeconds = Math.max(0, Math.round(diffMs / 1000));
+         }
+         const matchedTier = matchTierForLockPeriod(lockPeriodSeconds, tiers);
+         const effectiveWeight = calculateEffectiveWeight(
+            ownership.balance.toString(),
+            matchedTier.multiplier
+         );
+
          sendSuccess(res, {
             id: ownership.id,
             ownerAddress: ownership.ownerAddress,
@@ -915,6 +940,10 @@ router.get(
             lockupExpiresAt: ownership.lockupExpiresAt ?? null,
             is_frozen: ownership.frozen,
             frozen_at: ownership.frozenAt ?? null,
+            tier: matchedTier.tier,
+            multiplier: matchedTier.multiplier,
+            effectiveWeight,
+            tierData: matchedTier,
             createdAt: ownership.createdAt,
             updatedAt: ownership.updatedAt,
          });
